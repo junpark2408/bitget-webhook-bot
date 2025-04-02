@@ -21,21 +21,24 @@ def webhook():
         return jsonify({'status': 'error', 'message': 'Invalid payload'}), 400
 
     signal = data['signal']
-    log_signal(signal)
 
-    # ✅ 실제 주문 연결
+    # ✅ 각 신호에 대한 로그 출력 및 처리
     if signal == "go_long":
+        log_signal("Go Long ✅")
         place_order(SYMBOL, "open_long", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "go_short":
+        log_signal("Go Short ✅")
         place_order(SYMBOL, "open_short", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "exit_long_now":
+        log_signal("Exit Long Now 🔴")
         place_order(SYMBOL, "close_long", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "exit_short_now":
+        log_signal("Exit Short Now 🔵")
         place_order(SYMBOL, "close_short", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "ping":
-        pass  # 핑은 서버 상태 확인용
+        log_signal("Ping 🟡 (heartbeat)")  # ✅ 로그 출력 추가됨!
     else:
-        print("⚠️ Unknown signal")
+        log_signal(f"Unknown signal ❓: {signal}")
 
     return jsonify({'status': 'ok'})
 
