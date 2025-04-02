@@ -1,9 +1,14 @@
 from flask import Flask, request, jsonify
 import datetime
+from bitget_trading import place_order  # ✅ 실전 주문 함수 불러오기
 
 app = Flask(__name__)
 
-# 로그 출력 함수
+# 기본 설정
+SYMBOL = "BTCUSDT"
+FIXED_SIZE = 0.006  # 고정 포지션 크기
+LEVERAGE = 5        # 고정 레버리지
+
 def log_signal(signal_type):
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] 📩 Received signal: {signal_type}")
@@ -16,20 +21,21 @@ def webhook():
         return jsonify({'status': 'error', 'message': 'Invalid payload'}), 400
 
     signal = data['signal']
+    log_signal(signal)
 
-    # 시그널에 따라 로그 출력
+    # ✅ 실제 주문 연결
     if signal == "go_long":
-        log_signal("Go Long ✅")
+        place_order(SYMBOL, "open_long", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "go_short":
-        log_signal("Go Short ✅")
+        place_order(SYMBOL, "open_short", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "exit_long_now":
-        log_signal("Exit Long Now 🔴")
+        place_order(SYMBOL, "close_long", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "exit_short_now":
-        log_signal("Exit Short Now 🔵")
+        place_order(SYMBOL, "close_short", FIXED_SIZE, leverage=LEVERAGE)
     elif signal == "ping":
-        log_signal("Ping 🟡 (heartbeat)")
+        pass  # 핑은 서버 상태 확인용
     else:
-        log_signal(f"Unknown Signal ❓: {signal}")
+        print("⚠️ Unknown signal")
 
     return jsonify({'status': 'ok'})
 
