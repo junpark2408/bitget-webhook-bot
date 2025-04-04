@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: bitget-ema-scanner
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: "python main.py"
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: TELEGRAM_TOKEN
+        value: 7695863748:AAG-BXuSNB85vRdYvNq_LCemH1zCRm23sjQ
+      - key: TELEGRAM_CHAT_ID
+        value: 1956090853
