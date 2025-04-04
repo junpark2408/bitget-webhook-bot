@@ -1,46 +1,116 @@
-from flask import Flask, request, jsonify
-import datetime
-from bitget_trading import place_order  # ✅ 실전 주문 함수 불러오기
+import requests
+import pandas as pd
+from datetime import datetime
+import time
+import os
 
-app = Flask(__name__)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 기본 설정
-SYMBOL = "BTCUSDT"
-FIXED_SIZE = 0.006  # 고정 포지션 크기
-LEVERAGE = 5        # 고정 레버리지
+BITGET_API_URL = "https://api.bitget.com/api/v2/market/candles"
 
-def log_signal(signal_type):
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] 📩 Received signal: {signal_type}")
+SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+TIMEFRAMES = {
+    "5m": "5m",
+    "15m": "15m",
+    "1h": "1H",
+    "4h": "4H"
+}
+EMA_PERIODS = [7, 30, 120, 240, 360]
+last_alert_times = {}
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
 
-    if not data or 'signal' not in data:
-        return jsonify({'status': 'error', 'message': 'Invalid payload'}), 400
+def send_telegram_message(message: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, data=data)
 
-    signal = data['signal']
 
-    # ✅ 각 신호에 대한 로그 출력 및 처리
-    if signal == "go_long":
-        log_signal("Go Long ✅")
-        place_order(SYMBOL, "open_long", FIXED_SIZE, leverage=LEVERAGE)
-    elif signal == "go_short":
-        log_signal("Go Short ✅")
-        place_order(SYMBOL, "open_short", FIXED_SIZE, leverage=LEVERAGE)
-    elif signal == "exit_long_now":
-        log_signal("Exit Long Now 🔴")
-        place_order(SYMBOL, "close_long", FIXED_SIZE, leverage=LEVERAGE)
-    elif signal == "exit_short_now":
-        log_signal("Exit Short Now 🔵")
-        place_order(SYMBOL, "close_short", FIXED_SIZE, leverage=LEVERAGE)
-    elif signal == "ping":
-        log_signal("Ping 🟡 (heartbeat)")  # ✅ 로그 출력 추가됨!
-    else:
-        log_signal(f"Unknown signal ❓: {signal}")
+def calculate_emas(df: pd.DataFrame) -> pd.DataFrame:
+    for period in EMA_PERIODS:
+        df[f'EMA_{period}'] = df['close'].ewm(span=period, adjust=False).mean()
+    return df
 
-    return jsonify({'status': 'ok'})
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+def fetch_ohlcv(symbol: str, timeframe: str, limit: int = 500):
+    params = {
+        "symbol": symbol,
+        "granularity": timeframe,
+        "limit": limit
+    }
+    response = requests.get(BITGET_API_URL, params=params)
+    if response.status_code == 200:
+        data = response.json()["data"]
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume", "quoteVolume"])
+        df = df.astype({
+            "timestamp": "int64",
+            "open": "float",
+            "high": "float",
+            "low": "float",
+            "close": "float",
+            "volume": "float",
+            "quoteVolume": "float"
+        })
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.sort_values("datetime", inplace=True)
+        return df
+    return None
+
+
+def is_bullish(emas):
+    return all(emas[i] > emas[i + 1] for i in range(len(emas) - 1))
+
+
+def is_bearish(emas):
+    return all(emas[i] < emas[i + 1] for i in range(len(emas) - 1))
+
+
+def analyze_market():
+    now = datetime.utcnow()
+    for symbol in SYMBOLS:
+        for label, tf in TIMEFRAMES.items():
+            df = fetch_ohlcv(symbol, tf)
+            if df is None or len(df) < max(EMA_PERIODS) + 5:
+                continue
+
+            df = calculate_emas(df)
+            latest = df.iloc[-1]
+            previous = df.iloc[-2]
+
+            current_emas = [latest[f'EMA_{p}'] for p in EMA_PERIODS]
+            previous_emas = [previous[f'EMA_{p}'] for p in EMA_PERIODS]
+
+            key = f"{symbol}_{label}"
+
+            just_bullish = is_bullish(current_emas) and not is_bullish(previous_emas)
+            just_bearish = is_bearish(current_emas) and not is_bearish(previous_emas)
+
+            should_alert = False
+            if just_bullish or just_bearish:
+                should_alert = True
+            elif key not in last_alert_times or (now - last_alert_times[key]).total_seconds() > 3600:
+                should_alert = True
+
+            if should_alert:
+                if just_bullish:
+                    msg = f"\ud83d\udfe2 *\uac11 \uc815\ubc30\uc5f4 \uac10\uc9c0*\n\uc2ec\ubc88: {symbol}\n\ud0c0\uc784\ud504\ub808\uc784: {label}\n\uc2dc\uac04: {latest['datetime']}"
+                    send_telegram_message(msg)
+                    last_alert_times[key] = now
+                elif just_bearish:
+                    msg = f"\ud83d\udd34 *\uac11 \uc5ed\ubc30\uc5f4 \uac10\uc9c0*\n\uc2ec\ubc88: {symbol}\n\ud0c0\uc784\ud504\ub808\uc784: {label}\n\uc2dc\uac04: {latest['datetime']}"
+                    send_telegram_message(msg)
+                    last_alert_times[key] = now
+
+
+if __name__ == "__main__":
+    while True:
+        try:
+            analyze_market()
+            time.sleep(60)  # 1\ubd84 \ub9e4 \uc2e4\ud589
+        except Exception as e:
+            send_telegram_message(f"\u26a0\ufe0f \uc5d0\ub7ec \ubc1c\uc0dd: {str(e)}")
+            time.sleep(60)
