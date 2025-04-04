@@ -3,7 +3,7 @@ services:
     name: bitget-ema-scanner
     env: python
     plan: free
-    buildCommand: ""
+    buildCommand: "pip install -r requirements.txt"
     startCommand: "python main.py"
     autoDeploy: true
     branch: main
@@ -12,4 +12,3 @@ services:
         value: 7695863748:AAG-BXuSNB85vRdYvNq_LCemH1zCRm23sjQ
       - key: TELEGRAM_CHAT_ID
         value: 1956090853
-buildCommand: "pip install -r requirements.txt"
